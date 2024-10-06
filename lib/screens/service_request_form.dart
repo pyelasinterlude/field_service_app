@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 import '../models/service_request.dart';
-import '../services/category_service.dart';
 import '../services/database_helper.dart';
-import '../services/firestore_service.dart';
-import '../services/image_service.dart';
+import '../services/synchronization_service.dart';
+import 'user_management_screen.dart';
 
 class ServiceRequestForm extends StatefulWidget {
   @override
@@ -12,35 +13,28 @@ class ServiceRequestForm extends StatefulWidget {
 
 class _ServiceRequestFormState extends State<ServiceRequestForm> {
   final _formKey = GlobalKey<FormState>();
-  final CategoryService _categoryService = CategoryService();
   final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
-  final FirestoreService _firestoreService = FirestoreService();
-  final ImageService _imageService = ImageService();
+  final SyncService _syncService = SyncService();
 
   String? _selectedCategory;
-  List<String> _categories = [];
-  String? _imageUrl;
+  File? _image;
+  final picker = ImagePicker();
 
-  TextEditingController _clientNameController = TextEditingController();
-  TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _clientNameController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    _loadCategories();
-  }
+  Future<void> _getImage(ImageSource source) async {
+    final pickedFile = await picker.pickImage(source: source);
 
-  Future<void> _loadCategories() async {
-    final categories = await _categoryService.getCategories();
     setState(() {
-      _categories = categories.map((c) => c.name).toList();
+      if (pickedFile != null) {
+        _image = File(pickedFile.path);
+      }
     });
   }
 
   Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
-      _formKey.currentState!.save();
-
       final request = ServiceRequest(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         clientName: _clientNameController.text,
@@ -48,15 +42,13 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
         category: _selectedCategory ?? '',
         status: 'Pending',
         date: DateTime.now().toIso8601String(),
-        location: 'Current Location', // You should implement actual location fetching
-        imageUrl: _imageUrl,
+        location: 'Current Location', // TODO: Implement actual location
+        imageUrl: _image?.path, // Store the local path of the image
+        isSynced: 0,
       );
 
-      // Save locally
       await _databaseHelper.insertServiceRequest(request);
-
-      // Save to Firestore
-      await _firestoreService.addServiceRequest(request);
+      await _syncService.syncData();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Service request submitted successfully')),
@@ -67,17 +59,7 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
       _descriptionController.clear();
       setState(() {
         _selectedCategory = null;
-        _imageUrl = null;
-      });
-    }
-  }
-
-  Future<void> _pickImage() async {
-    final image = await _imageService.pickImage();
-    if (image != null) {
-      final url = await _imageService.uploadImage(image, 'temp_id');
-      setState(() {
-        _imageUrl = url;
+        _image = null;
       });
     }
   }
@@ -85,64 +67,84 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('New Service Request')),
-      body: Form(
+      appBar: AppBar(
+        title: Text('New Service Request'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.people),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => UserManagementScreen()),
+              );
+            },
+          ),
+        ],
+      )
+      ,body: Form(
         key: _formKey,
         child: ListView(
           padding: EdgeInsets.all(16.0),
-          children: [
+          children: <Widget>[
             TextFormField(
               controller: _clientNameController,
               decoration: InputDecoration(labelText: 'Client Name'),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter client name';
-                }
-                return null;
-              },
+              validator: (value) => value!.isEmpty ? 'Please enter a client name' : null,
             ),
             TextFormField(
               controller: _descriptionController,
               decoration: InputDecoration(labelText: 'Description'),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter description';
-                }
-                return null;
-              },
+              validator: (value) => value!.isEmpty ? 'Please enter a description' : null,
             ),
             DropdownButtonFormField<String>(
               value: _selectedCategory,
-              items: _categories.map((category) {
-                return DropdownMenuItem(
-                  value: category,
-                  child: Text(category),
+              items: ['Category 1', 'Category 2', 'Category 3'].map((String value) {
+                return DropdownMenuItem<String>(
+                  value: value,
+                  child: Text(value),
                 );
               }).toList(),
-              onChanged: (value) {
+              onChanged: (newValue) {
                 setState(() {
-                  _selectedCategory = value;
+                  _selectedCategory = newValue;
                 });
               },
               decoration: InputDecoration(labelText: 'Category'),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please select a category';
-                }
-                return null;
-              },
+              validator: (value) => value == null ? 'Please select a category' : null,
             ),
-            SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _pickImage,
-              child: Text('Add Image'),
+            SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: <Widget>[
+                ElevatedButton(
+                  onPressed: () => _getImage(ImageSource.camera),
+                  child: Text('Take Photo'),
+                ),
+                ElevatedButton(
+                  onPressed: () => _getImage(ImageSource.gallery),
+                  child: Text('Choose from Gallery'),
+                ),
+              ],
             ),
-            if (_imageUrl != null) Image.network(_imageUrl!),
-            SizedBox(height: 16),
+            if (_image != null) ...[
+              SizedBox(height: 20),
+              Image.file(_image!),
+            ],
+            SizedBox(height: 20),
             ElevatedButton(
               onPressed: _submitForm,
               child: Text('Submit'),
             ),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => UserManagementScreen()),
+                );
+              },
+              child: Text('User Management'),
+            )
           ],
         ),
       ),

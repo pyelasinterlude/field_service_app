@@ -7,6 +7,7 @@ class ServiceRequest {
   final String date;
   final String location;
   final String? imageUrl;
+  final int isSynced;
 
   ServiceRequest({
     required this.id,
@@ -17,6 +18,7 @@ class ServiceRequest {
     required this.date,
     required this.location,
     this.imageUrl,
+    required  this.isSynced,
   });
 
   Map<String, dynamic> toMap() {
@@ -29,6 +31,7 @@ class ServiceRequest {
       'date': date,
       'location': location,
       'imageUrl': imageUrl,
+      'isSynced': isSynced,
     };
   }
 
@@ -42,6 +45,7 @@ class ServiceRequest {
       date: map['date'],
       location: map['location'],
       imageUrl: map['imageUrl'],
+      isSynced: map['isSynced'],
     );
   }
 }

@@ -1,7 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
 import '../models/service_request.dart';
+import '../models/user.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -21,30 +21,61 @@ class DatabaseHelper {
     return await openDatabase(path, version: 1, onCreate: _createDB);
   }
 
-  Future _createDB(Database db, int version) async {
+  Future<void> _createDB(Database db, int version) async {
     await db.execute('''
-      CREATE TABLE service_requests (
+      CREATE TABLE service_requests(
         id TEXT PRIMARY KEY,
         clientName TEXT,
         description TEXT,
         category TEXT,
         status TEXT,
         date TEXT,
-        location TEXT
+        location TEXT,
+        imageUrl TEXT,
+        isSynced INTEGER
       )
     ''');
   }
 
-  Future<int> insertServiceRequest(ServiceRequest request) async {
-    final db = await database;
-    return await db.insert('service_requests', request.toMap());
+  Future<List<User>> getUsers() async {
+    Database db = await database;
+    var maps = await db.query('users');
+    return List.generate(maps.length, (i) {
+      return User.fromMap(maps[i]);
+    });
   }
 
-  Future<List<ServiceRequest>> getServiceRequests() async {
+  Future<int> deleteUser(String userId) async {
+    Database db = await database;
+    return await db.delete(
+      'users',
+      where: 'id = ?',
+      whereArgs: [userId],
+    );
+  }
+
+  Future<void> insertServiceRequest(ServiceRequest request) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('service_requests');
-    return List.generate(maps.length, (i) {
-      return ServiceRequest.fromMap(maps[i]);
-    });
+    await db.insert('service_requests', request.toMap());
+  }
+
+  Future<List<ServiceRequest>> getUnSyncedRequests() async {
+    final db = await database;
+    final maps = await db.query(
+      'service_requests',
+      where: 'isSynced = ?',
+      whereArgs: [0],
+    );
+    return List.generate(maps.length, (i) => ServiceRequest.fromMap(maps[i]));
+  }
+
+  Future<void> markAsSynced(String id) async {
+    final db = await database;
+    await db.update(
+      'service_requests',
+      {'isSynced': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }
